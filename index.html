@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Pega-Bug · AutoTeste</title>
+<style>
+html,body{margin:0;padding:0;height:100%;background:#10142b;overflow:hidden}
+#game{width:100%;height:100%}
+#erro{display:none;color:#fff;font:16px Arial,sans-serif;padding:20px;text-align:center}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="erro">Não foi possível carregar o jogo.<br>Ele precisa de internet para baixar a biblioteca Phaser. Conecte e recarregue a página.</div>
+
+<!-- Biblioteca Phaser CE 2.x (feita para navegadores antigos) via CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser-ce/2.20.0/phaser.min.js"></script>
+<script>
+/* Escrito em ES5 (var e function) para rodar em navegadores antigos */
+(function () {
+  if (typeof Phaser === 'undefined') {
+    document.getElementById('erro').style.display = 'block';
+    return;
+  }
+
+  var W = 240, H = 320, GROUND = 286;
+  var game = new Phaser.Game(W, H, Phaser.CANVAS, 'game', { create: create, update: update });
+
+  var bugTex, okTex, items, scoreText, livesText, hintText;
+  var overlay, overTitle, overInfo;
+  var score, lives, spawnT, over, overAt, best = 0;
+
+  function makeBug() {
+    var b = game.add.bitmapData(40, 40), c = b.ctx, i;
+    c.strokeStyle = '#2a0a0a'; c.lineWidth = 2;
+    for (i = 0; i < 3; i++) {
+      c.beginPath(); c.moveTo(3, 14 + i * 8); c.lineTo(37, 14 + i * 8); c.stroke();
+    }
+    c.fillStyle = '#e0414b'; c.beginPath(); c.arc(20, 22, 13, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#ffffff';
+    c.beginPath(); c.arc(15, 17, 3.5, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.arc(25, 17, 3.5, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#111111';
+    c.beginPath(); c.arc(15, 18, 1.5, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.arc(25, 18, 1.5, 0, Math.PI * 2); c.fill();
+    return b;
+  }
+
+  function makeOk() {
+    var b = game.add.bitmapData(40, 40), c = b.ctx;
+    c.fillStyle = '#3fcf86'; c.fillRect(5, 5, 30, 30);
+    c.strokeStyle = '#ffffff'; c.lineWidth = 4; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(12, 21); c.lineTo(18, 27); c.lineTo(29, 13); c.stroke();
+    return b;
+  }
+
+  function label(x, y, txt, size, color) {
+    var t = game.add.text(x, y, txt, { font: 'bold ' + size + 'px Arial', fill: color || '#ffffff', align: 'center' });
+    return t;
+  }
+
+  function create() {
+    game.stage.backgroundColor = '#1f3590';
+    game.scale.scaleMode = Phaser.ScaleManager.SHOW_ALL;
+    game.scale.pageAlignHorizontally = true;
+    game.scale.pageAlignVertically = true;
+    game.input.maxPointers = 1;
+
+    try { best = parseInt(localStorage.getItem('pegabug-best'), 10) || 0; } catch (e) {}
+
+    var g = game.add.graphics(0, 0);
+    g.beginFill(0x10142b); g.drawRect(0, GROUND, W, H - GROUND); g.endFill();
+    g.beginFill(0x93a9ff); g.drawRect(0, GROUND, W, 2); g.endFill();
+
+    bugTex = makeBug();
+    okTex = makeOk();
+    items = game.add.group();
+
+    scoreText = label(8, 6, 'Pontos: 0', 15);
+    livesText = label(W - 8, 6, 'Vidas: 3', 15);
+    livesText.anchor.set(1, 0);
+    hintText = label(W / 2, GROUND + 17, 'Toque nos bugs. Poupe o OK verde.', 11, '#b4bad6');
+    hintText.anchor.set(0.5);
+
+    overlay = game.add.group();
+    var d = game.add.graphics(0, 0);
+    d.beginFill(0x000000, 0.7); d.drawRect(0, 0, W, H); d.endFill();
+    overTitle = label(W / 2, 110, 'Fim de jogo', 26);
+    overTitle.anchor.set(0.5);
+    overInfo = label(W / 2, 175, '', 15);
+    overInfo.anchor.set(0.5);
+    overlay.add(d); overlay.add(overTitle); overlay.add(overInfo);
+    overlay.visible = false;
+
+    game.input.onTap.add(function () {
+      if (over && game.time.now - overAt > 600) start();
+    });
+
+    start();
+  }
+
+  function start() {
+    items.removeAll(true);
+    score = 0; lives = 3; spawnT = 0; over = false;
+    overlay.visible = false;
+    refresh();
+  }
+
+  function refresh() {
+    scoreText.text = 'Pontos: ' + score;
+    livesText.text = 'Vidas: ' + lives;
+  }
+
+  function lose() {
+    lives--;
+    refresh();
+    if (lives <= 0) endGame();
+  }
+
+  function endGame() {
+    over = true; overAt = game.time.now;
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem('pegabug-best', String(best)); } catch (e) {}
+    }
+    overInfo.text = 'Pontos: ' + score + '\nRecorde: ' + best + '\n\nToque para jogar de novo';
+    overlay.visible = true;
+    game.world.bringToTop(overlay);
+  }
+
+  function hit(s) {
+    if (over || s.done) return;
+    s.done = true;
+    s.inputEnabled = false;
+    if (s.isOk) { lose(); } else { score++; refresh(); }
+    var t = game.add.tween(s.scale).to({ x: 1.8, y: 1.8 }, 140, Phaser.Easing.Linear.None, true);
+    game.add.tween(s).to({ alpha: 0 }, 140, Phaser.Easing.Linear.None, true);
+    t.onComplete.add(function () { s.destroy(); });
+  }
+
+  function spawn() {
+    var isOk = Math.random() < 0.25;
+    var s = items.create(22 + Math.random() * (W - 44), -20, isOk ? okTex : bugTex);
+    s.anchor.set(0.5);
+    s.scale.set(1.15);
+    s.isOk = isOk;
+    s.done = false;
+    s.inputEnabled = true;
+    s.events.onInputDown.add(hit);
+  }
+
+  function update() {
+    if (over) return;
+    var dt = game.time.elapsed / 1000;
+    if (dt > 0.1) dt = 0.1;
+    var speed = Math.min(50 + score * 2.5, 170);
+    var interval = Math.max(380, 1000 - score * 14);
+
+    spawnT += dt * 1000;
+    if (spawnT >= interval) { spawnT = 0; spawn(); }
+
+    for (var i = items.children.length - 1; i >= 0; i--) {
+      var s = items.children[i];
+      if (s.done) continue;
+      s.y += speed * dt;
+      if (s.y > GROUND) {
+        var wasBug = !s.isOk;
+        s.done = true;
+        s.destroy();
+        if (wasBug) lose();
+        if (over) return;
+      }
+    }
+  }
+})();
+</script>
+</body>
+</html>
